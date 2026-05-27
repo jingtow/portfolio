@@ -145,8 +145,9 @@ async function saveData() {
   try {
     await fetch(GAS_URL, {
       method: "POST",
+      mode: "no-cors",
       body: JSON.stringify(payload),
-      headers: {"Content-Type":"application/json"}
+      headers: {"Content-Type":"text/plain"}
     });
   } catch(e) {}
   return true;
