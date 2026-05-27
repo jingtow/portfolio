@@ -119,15 +119,37 @@ let currentTab = "portfolio";
 let toastTimer = null;
 
 // ── Storage ──
-function loadData() {
+const GAS_URL = "https://script.google.com/macros/s/AKfycbzEBiR-Ul5Gvf14fedVrwjzZc-D5bmYHU-c-92yD2m4WgCsT9oFP30RmGz4d-V5AEGq_A/exec";
+
+async function loadData() {
+  // 先從 localStorage 載入（離線也能用）
   try {
     const raw = localStorage.getItem(DATA_KEY);
     if (raw) { const p = JSON.parse(raw); if (p && typeof p==="object") state = {...state,...p}; }
   } catch(e) {}
+  // 再從 Google Sheets 同步（有網路時覆蓋）
+  try {
+    const r = await fetch(GAS_URL);
+    const d = await r.json();
+    if (d && typeof d==="object" && d.status!=="empty" && d.status!=="error") {
+      state = {txs:Array.isArray(d.txs)?d.txs:[],prices:d.prices||{},names:d.names||{},reasons:d.reasons||{},watch:d.watch||{}};
+      localStorage.setItem(DATA_KEY, JSON.stringify({...state,_savedAt:d._savedAt||""}));
+    }
+  } catch(e) {}
 }
-function saveData() {
-  try { localStorage.setItem(DATA_KEY, JSON.stringify({...state, _savedAt: nowStr()})); return true; }
-  catch(e) { return false; }
+
+async function saveData() {
+  const payload = {...state, _savedAt: nowStr()};
+  // 同時存 localStorage（快）和 Google Sheets（永久）
+  try { localStorage.setItem(DATA_KEY, JSON.stringify(payload)); } catch(e) {}
+  try {
+    await fetch(GAS_URL, {
+      method: "POST",
+      body: JSON.stringify(payload),
+      headers: {"Content-Type":"application/json"}
+    });
+  } catch(e) {}
+  return true;
 }
 
 // ── Helpers ──
@@ -422,7 +444,7 @@ function autoFillCode() {
   const code = lookupByName(name);
   if (code) document.getElementById("f-code").value=code;
 }
-function submitTx() {
+async function submitTx() {
   const date=document.getElementById("f-date").value;
   const code=document.getElementById("f-code").value.trim();
   const name=document.getElementById("f-name").value.trim();
@@ -438,7 +460,7 @@ function submitTx() {
     state.txs=[{id:Date.now(),date,code,name,action,shares,price,note},...state.txs];
   }
   if (name) state.names[code]=name;
-  saveData(); closeModal("tx-modal"); currentTab="portfolio"; render();
+  await saveData(); closeModal("tx-modal"); currentTab="portfolio"; render();
   showToast(editTxId?"✅ 已修改":"✅ 已新增");
 }
 
@@ -456,9 +478,9 @@ function confirmDeleteTx(id) {
     </div>
   </div>`);
 }
-function deleteTx(id) {
+async function deleteTx(id) {
   state.txs=state.txs.filter(t=>String(t.id)!==String(id));
-  saveData(); closeModal("confirm-tx"); render(); showToast("🗑 已刪除");
+  await saveData(); closeModal("confirm-tx"); render(); showToast("🗑 已刪除");
 }
 
 // ── Price ──
@@ -485,13 +507,13 @@ function openBatch() {
     </div>
   </div>`);
 }
-function submitBatch() {
+async function submitBatch() {
   const now=nowShort(); let ok=0;
   calcPortfolio().forEach(r=>{
     const v=parseFloat(document.getElementById("bp-"+r.code)?.value);
     if(!isNaN(v)&&v>0){state.prices[r.code]={price:v,updatedAt:now};ok++;}
   });
-  saveData(); closeModal("batch-modal"); render();
+  await saveData(); closeModal("batch-modal"); render();
   if(ok>0) showToast(`✅ 更新 ${ok} 支現價`);
 }
 
@@ -509,9 +531,9 @@ function openReasonForm(code) {
     </div>
   </div>`);
 }
-function submitReason(code) {
+async function submitReason(code) {
   state.reasons[code]=document.getElementById("reason-text").value;
-  saveData(); closeModal("reason-modal"); render(); showToast("✅ 已儲存");
+  await saveData(); closeModal("reason-modal"); render(); showToast("✅ 已儲存");
 }
 
 // ── Watch ──
@@ -542,11 +564,11 @@ function openWatchForm(code) {
 }
 function autoFillWName(){const n=lookupByCode(document.getElementById("w-code")?.value);if(n)document.getElementById("w-name").value=n;}
 function autoFillWCode(){const c=lookupByName(document.getElementById("w-name")?.value);if(c)document.getElementById("w-code").value=c;}
-function submitWatch() {
+async function submitWatch() {
   const code=document.getElementById("w-code").value.trim();
   if (!code) return;
   state.watch[code]={code,name:document.getElementById("w-name").value.trim(),date:document.getElementById("w-date").value,buyLow:document.getElementById("w-buyL").value,buyHigh:document.getElementById("w-buyH").value,sellLow:document.getElementById("w-sellL").value,sellHigh:document.getElementById("w-sellH").value,note:document.getElementById("w-note").value};
-  saveData(); closeModal("watch-modal"); render(); showToast("👀 已加入關注");
+  await saveData(); closeModal("watch-modal"); render(); showToast("👀 已加入關注");
 }
 function confirmDeleteWatch(code) {
   document.body.insertAdjacentHTML("beforeend",`
@@ -560,7 +582,7 @@ function confirmDeleteWatch(code) {
     </div>
   </div>`);
 }
-function deleteWatch(code){delete state.watch[code];saveData();closeModal("confirm-w");render();showToast("🗑 已移除");}
+async function deleteWatch(code){delete state.watch[code];await saveData();closeModal("confirm-w");render();showToast("🗑 已移除");}
 
 // ── Backup ──
 function openBackup() {
@@ -583,17 +605,20 @@ function copyBackup(){
   try{navigator.clipboard.writeText(el.value);showToast("✅ 已複製");}
   catch(e){showToast("請長按文字框手動複製");}
 }
-function restoreBackup(){
+async function restoreBackup(){
   try{
     const p=JSON.parse(document.getElementById("backup-text").value);
     state={txs:Array.isArray(p.txs)?p.txs:[],prices:p.prices||{},names:p.names||{},reasons:p.reasons||{},watch:p.watch||{}};
-    saveData();closeModal("backup-modal");render();showToast("✅ 還原成功");
+    await saveData();closeModal("backup-modal");render();showToast("✅ 還原成功");
   }catch(e){showToast("❌ 格式錯誤");}
 }
 
 // ── Init ──
-loadData();
-render();
+(async () => {
+  document.getElementById("app").innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:60vh;color:#8b949e;font-size:14px;flex-direction:column;gap:12px"><div style="width:28px;height:28px;border:2px solid #21262d;border-top-color:#58a6ff;border-radius:50%;animation:spin 1s linear infinite"></div>載入中…</div><style>@keyframes spin{to{transform:rotate(360deg)}}</style>';
+  await loadData();
+  render();
+})();
 </script>
 </body>
 </html>
