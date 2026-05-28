@@ -271,9 +271,12 @@ async function fetchPrices() {
 
 // ── Modal helpers ──
 function openModal(id) { document.getElementById(id).style.display="flex"; }
-function closeModal(id) { document.getElementById(id).style.display="none"; }
+function closeModal(id) {
+  const el = document.getElementById(id);
+  if (el) el.remove(); // 完全移除，不只是隱藏
+}
 function closeAllModals() {
-  document.querySelectorAll(".overlay").forEach(m=>m.style.display="none");
+  document.querySelectorAll(".overlay").forEach(m=>m.remove());
 }
 
 // ── Render ──
@@ -455,14 +458,22 @@ async function submitTx() {
   const price=parseFloat(document.getElementById("f-price").value);
   const note=document.getElementById("f-note").value;
   if (!code||isNaN(shares)||isNaN(price)) { showToast("請填完代號、股數、價格"); return; }
+
+  // 立刻禁用按鈕防止重複點擊
+  const btn = document.querySelector("#tx-modal .btn-p");
+  if (btn) { btn.disabled=true; btn.textContent="儲存中…"; }
+
   if (editTxId) {
     state.txs=state.txs.map(t=>String(t.id)===String(editTxId)?{...t,date,code,name,action,shares,price,note}:t);
   } else {
     state.txs=[{id:Date.now(),date,code,name,action,shares,price,note},...state.txs];
   }
   if (name) state.names[code]=name;
-  await saveData(); closeModal("tx-modal"); currentTab="portfolio"; render();
+
+  // 先關視窗更新畫面，背景存檔
+  closeModal("tx-modal"); currentTab="portfolio"; render();
   showToast(editTxId?"✅ 已修改":"✅ 已新增");
+  saveData(); // 背景執行，不等待
 }
 
 // ── Confirm Delete Tx ──
@@ -481,7 +492,8 @@ function confirmDeleteTx(id) {
 }
 async function deleteTx(id) {
   state.txs=state.txs.filter(t=>String(t.id)!==String(id));
-  await saveData(); closeModal("confirm-tx"); render(); showToast("🗑 已刪除");
+  closeModal("confirm-tx"); render(); showToast("🗑 已刪除");
+  saveData();
 }
 
 // ── Price ──
@@ -509,13 +521,16 @@ function openBatch() {
   </div>`);
 }
 async function submitBatch() {
+  const btn = document.querySelector("#batch-modal .btn-p");
+  if (btn) { btn.disabled=true; btn.textContent="儲存中…"; }
   const now=nowShort(); let ok=0;
   calcPortfolio().forEach(r=>{
     const v=parseFloat(document.getElementById("bp-"+r.code)?.value);
     if(!isNaN(v)&&v>0){state.prices[r.code]={price:v,updatedAt:now};ok++;}
   });
-  await saveData(); closeModal("batch-modal"); render();
-  if(ok>0) showToast(`✅ 更新 ${ok} 支現價`);
+  closeModal("batch-modal"); render();
+  if(ok>0) showToast("✅ 更新 "+ok+" 支現價");
+  saveData();
 }
 
 // ── Reason ──
@@ -533,8 +548,11 @@ function openReasonForm(code) {
   </div>`);
 }
 async function submitReason(code) {
+  const btn = document.querySelector("#reason-modal .btn-p");
+  if (btn) { btn.disabled=true; btn.textContent="儲存中…"; }
   state.reasons[code]=document.getElementById("reason-text").value;
-  await saveData(); closeModal("reason-modal"); render(); showToast("✅ 已儲存");
+  closeModal("reason-modal"); render(); showToast("✅ 已儲存");
+  saveData();
 }
 
 // ── Watch ──
@@ -568,8 +586,11 @@ function autoFillWCode(){const c=lookupByName(document.getElementById("w-name")?
 async function submitWatch() {
   const code=document.getElementById("w-code").value.trim();
   if (!code) return;
+  const btn = document.querySelector("#watch-modal .btn-p");
+  if (btn) { btn.disabled=true; btn.textContent="儲存中…"; }
   state.watch[code]={code,name:document.getElementById("w-name").value.trim(),date:document.getElementById("w-date").value,buyLow:document.getElementById("w-buyL").value,buyHigh:document.getElementById("w-buyH").value,sellLow:document.getElementById("w-sellL").value,sellHigh:document.getElementById("w-sellH").value,note:document.getElementById("w-note").value};
-  await saveData(); closeModal("watch-modal"); render(); showToast("👀 已加入關注");
+  closeModal("watch-modal"); render(); showToast("👀 已加入關注");
+  saveData();
 }
 function confirmDeleteWatch(code) {
   document.body.insertAdjacentHTML("beforeend",`
