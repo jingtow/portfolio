@@ -86,32 +86,52 @@
 <div id="app"></div>
 
 <script>
-const TW_STOCKS = {
-  "1101":"台泥","1102":"亞泥","1216":"統一","1301":"台塑","1303":"南亞","1326":"台化",
-  "1402":"遠東新","1476":"儒鴻","1519":"華城","1590":"亞德客-KY","1802":"台玻",
-  "2002":"中鋼","2049":"上銀","2059":"川湖","2105":"正新","2207":"和泰車",
-  "2301":"光寶科","2303":"聯電","2308":"台達電","2312":"金寶","2313":"華通",
-  "2317":"鴻海","2324":"仁寶","2327":"國巨","2330":"台積電","2337":"旺宏",
-  "2344":"華邦電","2347":"聯強","2353":"宏碁","2356":"英業達","2357":"華碩",
-  "2360":"致茂","2376":"技嘉","2377":"微星","2379":"瑞昱","2382":"廣達",
-  "2395":"研華","2408":"南亞科","2409":"友達","2412":"中華電","2448":"晶電",
-  "2454":"聯發科","2458":"義隆","2464":"盟立","2476":"鉅祥","2493":"揚博",
-  "2498":"宏達電","2603":"長榮","2609":"陽明","2610":"華航","2615":"萬海",
-  "2618":"長榮航","2707":"晶華","2727":"王品","2731":"雄獅","2801":"彰銀",
-  "2880":"華南金","2881":"富邦金","2882":"國泰金","2883":"開發金","2884":"玉山金",
-  "2885":"元大金","2886":"兆豐金","2887":"台新金","2888":"新光金","2890":"永豐金",
-  "2891":"中信金","2892":"第一金","2912":"統一超","3008":"大立光","3023":"信邦",
-  "3026":"禾伸堂","3034":"聯詠","3035":"智原","3036":"文曄","3037":"欣興",
-  "3045":"台灣大","3084":"可成","3099":"美律","3105":"穩懋","3115":"奇鋐",
-  "3131":"弘塑","3132":"超眾","3189":"景碩","3231":"緯創","3293":"鈊象",
-  "3324":"雙鴻","4749":"新複材","4958":"臻鼎-KY","5289":"宜鼎","5483":"中美晶",
-  "5536":"聖暉","5876":"上海商銀","5880":"合庫金","6147":"頎邦","6176":"瑞儀",
-  "6202":"盛群","6209":"今國光","6213":"聯茂","6239":"力成","6269":"台郡",
-  "6271":"同欣電","6282":"康舒","6286":"立錡","6299":"藥華藥","6300":"保瑞",
-  "6409":"旭隼","6410":"精測","6415":"矽力-KY","6416":"創意","6421":"晶心科",
-  "6488":"環球晶","6505":"台塑化","7853":"政美應用","8021":"尖點","8064":"東捷",
-  "8069":"元太","8086":"宏捷科","8299":"群聯","8454":"富邦媒","9802":"鈺齊-KY",
-};
+// 股票代號名稱對照表（動態從 TWSE/TPEx 載入，快取7天）
+let TW_STOCKS = {};
+const STOCKS_CACHE_KEY = "tw_stocks_cache";
+const STOCKS_CACHE_DAYS = 7;
+
+async function loadStockList() {
+  // 先從快取讀
+  try {
+    const cached = JSON.parse(localStorage.getItem(STOCKS_CACHE_KEY)||"{}");
+    if (cached._ts && Date.now()-cached._ts < STOCKS_CACHE_DAYS*86400*1000 && Object.keys(cached).length > 10) {
+      TW_STOCKS = cached;
+      return;
+    }
+  } catch(e) {}
+
+  // 從 TWSE + TPEx 抓完整清單
+  const map = {};
+  try {
+    const r = await fetch("https://openapi.twse.com.tw/v1/opendata/t187ap03_L");
+    if (r.ok) {
+      const arr = await r.json();
+      for (const s of (Array.isArray(arr)?arr:[])) {
+        const code = (s.公司代號||s.Code||"").trim();
+        const name = (s.公司簡稱||s.Name||"").trim();
+        if (code && name) map[code] = name;
+      }
+    }
+  } catch(e) {}
+  try {
+    const r = await fetch("https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O");
+    if (r.ok) {
+      const arr = await r.json();
+      for (const s of (Array.isArray(arr)?arr:[])) {
+        const code = (s.公司代號||s.SecuritiesCompanyCode||"").trim();
+        const name = (s.公司簡稱||s.Name||"").trim();
+        if (code && name) map[code] = name;
+      }
+    }
+  } catch(e) {}
+
+  if (Object.keys(map).length > 10) {
+    map._ts = Date.now();
+    TW_STOCKS = map;
+    try { localStorage.setItem(STOCKS_CACHE_KEY, JSON.stringify(map)); } catch(e) {}
+  }
+}
 
 const DATA_KEY = "ptf_v1";
 let state = { txs:[], prices:{}, names:{}, reasons:{}, watch:{} };
@@ -416,8 +436,8 @@ function openTxForm(id) {
       <div class="modal-title">${id?"編輯交易":"新增交易"}</div>
       <div class="form-grid">
         <label class="form-lbl">日期</label><input class="form-inp" type="date" id="f-date" value="${d.date}">
-        <label class="form-lbl">代號</label><input class="form-inp" id="f-code" placeholder="例：2330" value="${d.code}" oninput="autoFillName()">
-        <label class="form-lbl">名稱</label><input class="form-inp" id="f-name" placeholder="例：台積電" value="${d.name}" oninput="autoFillCode()">
+        <label class="form-lbl">代號</label><input class="form-inp" id="f-code" placeholder="例：2330" value="${d.code}" oninput="autoFillName()" onchange="autoFillName()" onblur="autoFillName()">
+        <label class="form-lbl">名稱</label><input class="form-inp" id="f-name" placeholder="例：台積電" value="${d.name}" oninput="autoFillCode()" onchange="autoFillCode()" onblur="autoFillCode()">
         <label class="form-lbl">買/賣</label>
         <div class="toggle-wrap">
           <button class="toggle-btn ${d.action==="買入"?"active":""}" style="color:var(--up)" onclick="setAction('買入',this)">買入</button>
@@ -439,14 +459,22 @@ function setAction(a,btn) {
   btn.classList.add("active"); btn.dataset.action=a;
 }
 function autoFillName() {
-  const code = document.getElementById("f-code")?.value;
+  const codeEl = document.getElementById("f-code");
+  const nameEl = document.getElementById("f-name");
+  if (!codeEl || !nameEl) return;
+  const code = codeEl.value.trim();
+  if (!code) return;
   const name = lookupByCode(code);
-  if (name) document.getElementById("f-name").value=name;
+  if (name && !nameEl.value.trim()) nameEl.value = name;
 }
 function autoFillCode() {
-  const name = document.getElementById("f-name")?.value;
+  const nameEl = document.getElementById("f-name");
+  const codeEl = document.getElementById("f-code");
+  if (!nameEl || !codeEl) return;
+  const name = nameEl.value.trim();
+  if (!name) return;
   const code = lookupByName(name);
-  if (code) document.getElementById("f-code").value=code;
+  if (code && !codeEl.value.trim()) codeEl.value = code;
 }
 async function submitTx() {
   const date=document.getElementById("f-date").value;
@@ -638,7 +666,7 @@ async function restoreBackup(){
 // ── Init ──
 (async () => {
   document.getElementById("app").innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:60vh;color:#8b949e;font-size:14px;flex-direction:column;gap:12px"><div style="width:28px;height:28px;border:2px solid #21262d;border-top-color:#58a6ff;border-radius:50%;animation:spin 1s linear infinite"></div>載入中…</div><style>@keyframes spin{to{transform:rotate(360deg)}}</style>';
-  await loadData();
+  await Promise.all([loadData(), loadStockList()]);
   render();
 })();
 </script>
